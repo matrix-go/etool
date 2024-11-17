@@ -5,11 +5,16 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"github.com/matrix-go/etool/internal/gen/dao/parser/mysql/options"
 	"github.com/xwb1989/sqlparser"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 	"io"
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 	"text/template"
 )
 
@@ -78,7 +83,7 @@ func (p *parser) Write(outPath string) error {
 			return err
 		}
 
-		// 格式化 生成的代码
+		// fmt generated code
 		err = exec.Command("gofmt", "-s", "-w", daoDir).Run()
 		if err != nil {
 			return err
@@ -87,8 +92,26 @@ func (p *parser) Write(outPath string) error {
 	return nil
 }
 
-func NewParser(ddlPath string, prefix string) (Parser, error) {
-	file, err := os.OpenFile(ddlPath, os.O_RDONLY, 0666)
+func NewParser(opts ...options.ParserOption) (Parser, error) {
+
+	parserOpt := &options.Option{}
+	for _, opt := range opts {
+		opt(parserOpt)
+	}
+	parserMode := parserOpt.Validate()
+	switch parserMode {
+	case options.ParserModeDDLPath:
+		return NewDDLPathParser(parserOpt)
+	case options.ParserModeDSNConnect:
+		return NewDSNConnectParser(parserOpt)
+	default:
+		return nil, errors.New("invalid parser mode")
+	}
+}
+
+func NewDDLPathParser(parserOpt *options.Option) (Parser, error) {
+
+	file, err := os.OpenFile(parserOpt.DDLPath, os.O_RDONLY, 0666)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +135,102 @@ func NewParser(ddlPath string, prefix string) (Parser, error) {
 	}
 
 	// typesStruct
-	metadataParser := NewMetadataParser(ddl, prefix)
+	metadataParser := NewMetadataParser(ddl, parserOpt.Prefix)
+	typesParseStruct := TypesParseStruct{}
+	typesParseStruct.PackageName = metadataParser.ParsePackageName()
+	typesParseStruct.TableName = metadataParser.ParseTableName()
+	typesParseStruct.OriginTableName = metadataParser.ParseOriginTableName()
+	typesParseStruct.InstanceName = metadataParser.ParseInstanceName()
+	typesParseStruct.MethodReceiver = metadataParser.ParseMethodReceiver()
+	typesParseStruct.Columns, typesParseStruct.HasDecimal = metadataParser.ParseColumns()
+
+	// dao template
+	typesTemplate := template.New("typesTemplate")
+	typesTmpl, err := typesTemplate.Parse(typesTmplStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// dao impl template
+	daoTemplate := template.New("daoTemplate")
+	daoTmpl, err := daoTemplate.Parse(daoTmplStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &parser{
+		ddl:         ddl,
+		typesTmpl:   typesTmpl,
+		daoTmpl:     daoTmpl,
+		typesStruct: typesParseStruct,
+	}, nil
+}
+
+func NewDSNConnectParser(parserOpt *options.Option) (Parser, error) {
+
+	db, err := gorm.Open(mysql.Open(parserOpt.DSN), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{
+			SingularTable: true,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	defer sqlDB.Close()
+
+	// show tables
+	tables, err := db.Migrator().GetTables()
+	if err != nil {
+		return nil, err
+	}
+
+	tableExists := false
+	targetTable := parserOpt.Table
+	if !strings.HasPrefix(targetTable, parserOpt.Prefix) {
+		targetTable = parserOpt.Prefix + "_" + targetTable
+	}
+
+	for _, table := range tables {
+		if targetTable == table {
+			tableExists = true
+			break
+		}
+	}
+	if !tableExists {
+		return nil, errors.New("target table not found")
+	}
+
+	var table string
+	var sql string
+	rows, err := sqlDB.Query("SHOW CREATE TABLE " + targetTable)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		if err := rows.Scan(&table, &sql); err != nil {
+			return nil, err
+		}
+	}
+
+	// ddl
+	stmt, err := sqlparser.ParseStrictDDL(sql)
+	if err != nil {
+		return nil, err
+	}
+	ddl, ok := stmt.(*sqlparser.DDL)
+	if !ok {
+		return nil, errors.New("unsupported ddlSql")
+	}
+	if ddl.Action != sqlparser.CreateStr {
+		return nil, errors.New("unsupported ddl, only create ddl supported")
+	}
+
+	// typesStruct
+	metadataParser := NewMetadataParser(ddl, parserOpt.Prefix)
 	typesParseStruct := TypesParseStruct{}
 	typesParseStruct.PackageName = metadataParser.ParsePackageName()
 	typesParseStruct.TableName = metadataParser.ParseTableName()

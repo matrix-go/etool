@@ -3,8 +3,7 @@ package mysql
 import "strings"
 
 /*
-gorm.io/gen/internal/model/base.go datatype
-
+	gorm.io/gen/internal/model/base.go datatype
 */
 
 type columnType struct {

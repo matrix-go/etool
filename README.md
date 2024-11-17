@@ -19,3 +19,8 @@ etool gen dao -i tests/testdata/account.sql -o ./internal -p t
 ```bash
 go test -v tests/dao/dao_test.go
 ```
+
+generate `sku_dao` with table connection
+```bash
+etool gen dao -d 'root:1234567@tcp(127.0.0.1:3306)/db_shop' -p t -t sku -o ./internal
+```

@@ -1,11 +1,9 @@
-/*
-Copyright © 2024 NAME HERE <EMAIL ADDRESS>
-*/
 package dao
 
 import (
 	"fmt"
 	"github.com/matrix-go/etool/internal/gen/dao/parser/mysql"
+	"github.com/matrix-go/etool/internal/gen/dao/parser/mysql/options"
 
 	"github.com/spf13/cobra"
 )
@@ -14,6 +12,8 @@ var (
 	ddlPath *string
 	outPath *string
 	prefix  *string
+	dsn     *string
+	table   *string
 )
 
 // Cmd represents the dao command
@@ -29,7 +29,12 @@ var Cmd = &cobra.Command{
   3. generate dao code with prefix set:
     etool gen dao -i tests/testdata/user.sql -o ./internal -p t`,
 	Run: func(cmd *cobra.Command, args []string) {
-		p, err := mysql.NewParser(*ddlPath, *prefix)
+		p, err := mysql.NewParser(
+			options.WithDDLPath(*ddlPath),
+			options.WithPrefix(*prefix),
+			options.WithDsn(*dsn),
+			options.WithTable(*table),
+		)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -57,4 +62,7 @@ func init() {
 	ddlPath = Cmd.Flags().StringP("in", "i", "", "ddl sql path")
 	outPath = Cmd.Flags().StringP("out", "o", "stdout", "stdout or file, default stdout")
 	prefix = Cmd.Flags().StringP("prefix", "p", "t", "prefix of table, default t")
+	dsn = Cmd.Flags().StringP("dsn", "d", "", "mysql connection dsn")
+	// TODO: should support more table with comma connected
+	table = Cmd.Flags().StringP("table", "t", "", "mysql table name")
 }

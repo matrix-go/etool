@@ -50,8 +50,8 @@ func (p *MetadataParser) ParseColumns() ([]Column, bool) {
 	hasDecimal := false
 	columns := make([]Column, 0, len(p.ddl.TableSpec.Columns))
 	for _, col := range p.ddl.TableSpec.Columns {
-		// TODO: 特殊类型的处理 varchar(100) 之类的数据
-		// 包括decimal的处理,import的变化.
+		// TODO: special like varchar(100)
+		// import should change
 		colType, hasDec := p.parseColumnType(col)
 		if hasDec {
 			hasDecimal = true
@@ -75,7 +75,7 @@ func (p *MetadataParser) parseColumnType(col *sqlparser.ColumnDefinition) (strin
 	if typ, exists := dataTypeMap[colType.typ]; exists {
 		return typ(colType), hasDecimal
 	}
-	// TODO: 不存在再做处理
+	// TODO: maybe more actions
 	return "any", hasDecimal
 }
 
