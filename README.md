@@ -4,7 +4,7 @@ a tool for generate code
 
 install etool
 ```bash
-go install .
+go install github.com/matrix-go/etool
 ```
 
 
